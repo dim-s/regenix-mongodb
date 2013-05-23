@@ -56,9 +56,14 @@ abstract class ActiveRecord extends AbstractActiveRecord {
     }
 
     /**
+     * @param string $where
      * @return Query
      */
-    public static function query(){
-        return new Query(static::getService());
+    public static function query($where = ''){
+        $query = new Query(static::getService());
+        if ($where)
+            call_user_func_array(array($query, 'filter'), func_get_args());
+
+        return $query;
     }
 }

@@ -65,6 +65,15 @@ class Service extends AbstractService {
     }
 
     /**
+     * @param AbstractQuery $query
+     * @param $key
+     * @return mixed
+     */
+    public function distinct(AbstractQuery $query, $key){
+        return $this->getCollection()->distinct($key, $query ? $query->getData() : array());
+    }
+
+    /**
      * TODO optimize
      * @param AbstractQuery $query
      * @param array $update
@@ -490,35 +499,78 @@ class DocumentCursor extends ActiveRecordCursor {
 
 class Query extends AbstractQuery {
 
+    protected function filterCustomOperator($field, $value, $operator){
+        switch($operator){
+            case 'exists': return $this->exists($field, $value); break;
+            case 'pattern' : return $this->pattern($field, $value); break;
+        }
+
+        parent::filterCustomOperator($field, $value, $operator);
+    }
+
     /**
-     * @param bool $value
+     * @param string $field
      * @return $this
      */
-    public function exists($value){
-        $this->data[$this->popField()]['$exists'] = $value;
-        return $this;
+    public function exists($field){
+        return $this->popValue($field, true, '$exists', false);
+    }
+
+    /**
+     * @param string $field
+     * @param string $pattern
+     * @return $this
+     */
+    public function pattern($field, $pattern){
+        $regex = new \MongoRegex($pattern);
+        return $this->popValue($field, $regex, '$eq', false);
+    }
+
+    /**
+     * @param string $field
+     * @param string $pattern
+     * @return $this
+     */
+    public function notPattern($field, $pattern){
+        $regex = new \MongoRegex($pattern);
+        return $this->notEq($field, $regex);
+    }
+
+    private static function _likeBuild($expr){
+        $expr = quotemeta(trim((string)$expr));
+        if ($expr[0] === '%'){
+            $expr = substr($expr, 1) . '$';
+        }
+
+        if (substr($expr, -1) === '%'){
+            $expr = '^' . substr($expr, 0, -1);
+        }
+
+        return '/' . $expr . '/';
+    }
+
+    /**
+     * @param string $field
+     * @param string $expr
+     * @return $this
+     */
+    public function like($field, $expr){
+        return $this->pattern($field, self::_likeBuild($expr));
+    }
+
+    /**
+     * @param string $field
+     * @param string $expr
+     * @return $this
+     */
+    public function notLike($field, $expr){
+        return $this->notPattern($field, self::_likeBuild($expr));
     }
 
     /**
      * @return array
      */
     public function getData(){
-        $eq = $this->data['$eq'];
-        $data = array_merge($this->data, $eq);
-        unset($data['$eq']);
-        return $data;
-    }
-
-    /**
-     * @param string $pattern
-     * @param string $flags
-     * @return $this
-     */
-    public function pattern($pattern, $flags = ''){
-        $regex = \MongoRegex($pattern);
-        if ($flags)
-            $regex->flags = $flags;
-        $this->data[$this->popField()] = $regex;
-        return $this;
+        return $this->data;
     }
 }
