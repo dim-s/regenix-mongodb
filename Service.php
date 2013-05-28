@@ -1,28 +1,118 @@
 <?php
 namespace modules\mongodb;
 
-use framework\exceptions\CoreException;
-use framework\lang\ArrayTyped;
-use framework\lang\ClassLoader;
-use framework\lang\String;
-use framework\libs\Time;
-use framework\mvc\AbstractQuery;
-use framework\mvc\AbstractService;
-use framework\mvc\AbstractActiveRecord;
-use framework\mvc\ActiveRecordCursor;
-use framework\mvc\Annotations;
-use framework\mvc\IHandleAfterLoad;
-use framework\mvc\IHandleAfterRemove;
-use framework\mvc\IHandleAfterSave;
-use framework\mvc\IHandleBeforeLoad;
-use framework\mvc\IHandleBeforeRemove;
-use framework\mvc\IHandleBeforeSave;
-use framework\mvc\TActiveRecordHandle;
+use regenix\Project;
+use regenix\lang\CoreException;
+use regenix\lang\ArrayTyped;
+use regenix\lang\String;
+use regenix\libs\Time;
+use regenix\mvc\AbstractQuery;
+use regenix\mvc\AbstractService;
+use regenix\mvc\AbstractActiveRecord;
+use regenix\mvc\ActiveRecordCursor;
+use regenix\mvc\Annotations;
+use regenix\mvc\IHandleAfterRemove;
+use regenix\mvc\IHandleAfterSave;
+use regenix\mvc\IHandleBeforeRemove;
+use regenix\mvc\IHandleBeforeSave;
+
+{
+    if ( !extension_loaded( 'mongo' ) )
+        throw CoreException::formated('Unable to load `php_mongo` extension, please install it!');
+
+    // register default connection
+    Service::addConnection(Service::DEFAULT_CONNECTION, ServiceConnection::buildFromConfiguration());
+}
+
+class ServiceConnection {
+
+    /** @var \MongoDB */
+    public $db;
+
+    /** @var \MongoClient */
+    public $client;
+
+    /**
+     * @param string $host localhost:27017
+     * @param string $dbName
+     * @param string $username
+     * @param string $password
+     * @param array $options
+     */
+    public function __construct($host, $dbName, $username = '', $password = '',
+                                array $options = array('connect' => true, 'w' => 1)){
+        $dbHost = 'mongodb://' . $host;
+
+        if ( $username ){
+            $options['db']       = $dbName;
+            $options['password'] = $username;
+            $options['username'] = $password;
+        }
+
+        $this->client = new \MongoClient($dbHost, $options);
+        $this->db     = $this->client->selectDB( $dbName );
+    }
+
+    /**
+     * @return ServiceConnection
+     */
+    public static function buildFromConfiguration(){
+        if (Project::current()){
+            $config = Project::current()->config;
+
+            $dbHost = $config->getString('mongodb.host', 'localhost:27017');
+            $dbName = $config->get('mongodb.dbname', 'regenix');
+            $dbUser = $config->get('mongodb.user');
+            $dbPass = $config->get('mongodb.password');
+            $dbW    = $config->get('mongodb.writeConcern', 1);
+            $dbTimeout = $config->getNumber('mongodb.timeout', 0);
+            $dbWTimeout = $config->getNumber('mongodb.wTimeout', 0);
+            $dbReplicaSet = $config->get('mongodb.replicaSet');
+
+            $options = array('connect' => true, 'w' => $dbW);
+
+            if ( $dbTimeout )
+                $options['connectTimeoutMS'] = $dbTimeout;
+
+            if ( $dbReplicaSet )
+                $options['replicaSet'] = $dbReplicaSet;
+
+            if ( $dbWTimeout )
+                $options['wTimeout'] = $dbWTimeout;
+
+            return new ServiceConnection($dbHost, $dbName, $dbUser, $dbPass, $options);
+        } else {
+            return new ServiceConnection('localhost:27017', 'regenix');
+        }
+    }
+}
 
 class Service extends AbstractService {
 
+    const DEFAULT_CONNECTION = 'default';
+
+    /** @var ServiceConnection[] */
+    private static $connections = array();
+
     /** @var \MongoCollection */
     private $collection_;
+
+    /**
+     * @param string $name
+     * @param ServiceConnection $connection
+     */
+    public static function addConnection($name, ServiceConnection $connection){
+        self::$connections[$name] = $connection;
+    }
+
+    /**
+     * @param string $name
+     * @return ServiceConnection
+     */
+    public static function getConnection($name){
+        return self::$connections[$name];
+    }
+
 
     protected function __construct($modelClass){
         parent::__construct($modelClass);
@@ -36,7 +126,8 @@ class Service extends AbstractService {
             return $this->collection_;
 
         $meta = $this->getMeta();
-        return $this->collection_ = Module::$db->selectCollection( $meta['collection'] );
+        $connection = Service::getConnection(Service::DEFAULT_CONNECTION);
+        return $this->collection_ = $connection->db->selectCollection( $meta['collection'] );
     }
 
     protected function findDataById($id, array $fields = array(), $lazy = false){
@@ -177,7 +268,8 @@ class Service extends AbstractService {
         if ($document instanceof IHandleAfterSave)
             $document->onAfterSave($isNew);
 
-        $document->__fetched = true;
+        $document->__fetched  = true;
+        $document->__modified = array();
 
         return $result;
     }
@@ -493,6 +585,17 @@ class DocumentCursor extends ActiveRecordCursor {
      */
     public function asArray(){
         return parent::asArray();
+    }
+
+    /**
+     * @return ActiveRecord
+     */
+    public function firstOrCreate(){
+        if ($first = $this->first())
+            return $first;
+
+        $class = $this->service->getModelClass();
+        return new $class();
     }
 }
 

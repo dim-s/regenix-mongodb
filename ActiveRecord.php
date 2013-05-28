@@ -1,11 +1,13 @@
 <?php
 namespace modules\mongodb;
 
-use framework\exceptions\CoreException;
-use framework\modules\AbstractModule;
-use framework\mvc\AbstractQuery;
-use framework\mvc\AbstractService;
-use framework\mvc\AbstractActiveRecord;
+use regenix\lang\CoreException;
+use regenix\lang\String;
+use regenix\modules\Module;
+use regenix\mvc\AbstractQuery;
+use regenix\mvc\AbstractService;
+use regenix\mvc\AbstractActiveRecord;
+use regenix\mvc\Annotations;
 
 abstract class ActiveRecord extends AbstractActiveRecord {
 
@@ -45,10 +47,6 @@ abstract class ActiveRecord extends AbstractActiveRecord {
     public static function initialize(){
         parent::initialize();
 
-        /** @var $module Module */
-        $module = Module::getCurrent();
-        $module->initConnection();
-
         /** register indexed */
         /** @var $service Service */
         $service = static::getService();
@@ -66,4 +64,102 @@ abstract class ActiveRecord extends AbstractActiveRecord {
 
         return $query;
     }
+}
+
+
+abstract class AtomicOperation {
+
+    public $oper;
+    public $value;
+
+    public $needTyped = false;
+
+    public function __construct($oper, $value = ''){
+        $this->oper  = $oper;
+        $this->value = $value;
+    }
+
+    public function getDefaultValue(){
+        return null;
+    }
+
+    public function validateType($type){
+        return true;
+    }
+
+    public function doTyped($type, $ref = null){
+        // ...
+    }
+}
+
+class AtomicInc extends AtomicOperation {
+
+    public function __construct($value){
+        parent::__construct('$inc', (int)$value);
+    }
+
+    public function getDefaultValue(){
+        return $this->value;
+    }
+
+    public function validateType($type){
+        return $type === 'int' || $type === 'integer' || $type === 'long';
+    }
+}
+
+class AtomicRename extends AtomicOperation {
+
+    public function __construct($value){
+        parent::__construct('$rename', (string)$value);
+    }
+}
+
+class AtomicPush extends AtomicOperation {
+
+    public $needTyped = true;
+
+    /**
+     * @param $value array|mixed
+     */
+    public function __construct($value){
+        if ( is_array($value) )
+            parent::__construct('$pushAll', $value);
+        else
+            parent::__construct('$push', $value);
+    }
+
+    // TODO fix typed
+    public function doTyped($type, $ref = null){
+
+        $realType = 'mixed';
+        if ( String::endsWith($type, '[]') ){
+            $realType = substr($type, 0, -2);
+        }
+
+        if ( is_array($this->value) ){
+            foreach($this->value as &$val){
+                $val = Service::typed($val, $realType, $ref);
+            }
+            unset($val);
+        } else {
+            $this->value = Service::typed($this->value, $realType, $ref);
+        }
+    }
+}
+
+
+// ANNOTATIONS
+{
+    // @indexed .class
+    Annotations::registerAnnotation('indexed', array(
+        'fields' => array('$background' => 'boolean'),
+        'multi' => true,
+        'any' => true
+    ), 'class');
+
+    // @indexed .property
+    // todo fix remove _arg
+    Annotations::registerAnnotation('indexed', array(
+        'fields' => array('_arg' => 'mixed', 'background' => 'boolean', 'sort' => 'integer')
+    ), 'property');
 }
