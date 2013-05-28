@@ -2,6 +2,7 @@
 namespace modules\mongodb;
 
 use regenix\Project;
+use regenix\lang\ClassScanner;
 use regenix\lang\CoreException;
 use regenix\lang\ArrayTyped;
 use regenix\lang\String;
@@ -353,9 +354,10 @@ class Service extends AbstractService {
 
                 if ($value instanceof \DateTime){
                     $tz = $value->getTimezone();
-                    $value->setTimezone(\DateTimeZone::UTC);
+                    $value->setTimezone(new \DateTimeZone('UTC'));
                     $ret = new \MongoDate($value->getTimestamp());
-                    $value->setTimezone($tz);
+                    if ($tz)
+                        $value->setTimezone($tz);
                     return $ret;
                 } else
                     return $value instanceof \MongoDate ? $value : new \MongoDate( (int)$value );
@@ -401,7 +403,7 @@ class Service extends AbstractService {
                                 $type);*/
                         } else {
 
-                            ClassLoader::load($type);
+                            ClassScanner::loadClass($type);
                             $info = self::$modelInfo[$type];
                             if ( !$info ){
                                 throw CoreException::formated('`%s.class` is not document class for mongo $ref', $type);
