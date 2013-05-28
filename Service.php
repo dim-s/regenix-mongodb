@@ -293,6 +293,15 @@ class Service extends AbstractService {
         }
     }
 
+    /**
+     * @param AbstractQuery $query
+     * @param array $options
+     * @return mixed
+     */
+    public function removeByFilter(AbstractQuery $query, array $options = array()){
+        return $this->getCollection()->remove($query ? $query->getData() : array(), $options);
+    }
+
     /****** UTILS *******/
     public function typedFetch($value, $fieldMeta){
         if ($value instanceof \MongoDate || $value instanceof \MongoTimestamp){
