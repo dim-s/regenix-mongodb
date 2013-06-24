@@ -1,7 +1,7 @@
 <?php
 namespace modules\mongodb;
 
-use regenix\Project;
+use regenix\Application;
 use regenix\lang\ClassScanner;
 use regenix\lang\CoreException;
 use regenix\lang\ArrayTyped;
@@ -19,7 +19,7 @@ use regenix\mvc\IHandleBeforeSave;
 
 {
     if ( !extension_loaded( 'mongo' ) )
-        throw CoreException::formated('Unable to load `php_mongo` extension, please install it!');
+        throw new CoreException('Unable to load `php_mongo` extension, please install it!');
 
     // register default connection
     Service::addConnection(Service::DEFAULT_CONNECTION, ServiceConnection::buildFromConfiguration());
@@ -58,8 +58,8 @@ class ServiceConnection {
      * @return ServiceConnection
      */
     public static function buildFromConfiguration(){
-        if (Project::current()){
-            $config = Project::current()->config;
+        if (Application::current()){
+            $config = Application::current()->config;
 
             $dbHost = $config->getString('mongodb.host', 'localhost:27017');
             $dbName = $config->get('mongodb.dbname', 'regenix');
@@ -211,6 +211,27 @@ class Service extends AbstractService {
 
                     $document->__data[$field] = null;
                 } else {
+                    if (is_array($value)){
+                        foreach($value as $code => $item){
+                            if ($item instanceof AtomicOperation ){
+                                if ($isNew)
+                                    $data[ $operation ][ $info['column'] . '.' . $code] = $item->getDefaultValue();
+                                else
+                                    $data[ $item->oper ][ $info['column'] . '.' . $code] = $item->value;
+                            } else {
+                                if (!$isNew){
+                                    if ( $operation )
+                                        $data[ $operation ][ $info['column'] . '.' . $code ] = $item;
+                                    else
+                                        $data[ $info['column'] . '.' . $code ] = $item;
+                                }
+                            }
+                        }
+
+                        if (!$isNew)
+                            continue;
+                    }
+
                     if ( $operation )
                         $data[ $operation ][ $info['column'] ] = $value;
                     else
@@ -255,10 +276,8 @@ class Service extends AbstractService {
             }
         } else {
             $data   = $this->getData($document, '$set', true);
-
             if ($data){
                 $result = $this->getCollection()->update(array('_id' => $this->getId($document)), $data, $options );
-
                 if ($data['$inc'] || $data['$unset']){
                     $this->reload($document);
                 }
@@ -331,7 +350,7 @@ class Service extends AbstractService {
 
         if ( $value instanceof AtomicOperation ){
             if (!$value->validateType($type))
-                throw CoreException::formated('Can\'t use `%s` atomic operation for `%s` type', $value->oper, $type);
+                throw new CoreException('Can\'t use `%s` atomic operation for `%s` type', $value->oper, $type);
 
             if ( $value->needTyped ){
                 $value->doTyped($type, $ref);
@@ -403,19 +422,21 @@ class Service extends AbstractService {
                 } else {
 
                     if ( $ref ){
-
                         if ( !is_a($value, $type) && !is_subclass_of($value, $type) ){
 
                             return $value;
-                            /*throw CoreException::formated('`%s` is not instance of %s class',
+                            /*throw new CoreException('`%s` is not instance of %s class',
                                 is_scalar($value) || is_object($value) ? (string)$value : gettype($value),
                                 $type);*/
                         } else {
 
                             ClassScanner::loadClass($type);
+                            if ($type[0] === '\\')
+                                $type = substr($type, 1);
+
                             $info = self::$modelInfo[$type];
                             if ( !$info ){
-                                throw CoreException::formated('`%s.class` is not document class for mongo $ref', $type);
+                                throw new CoreException('`%s.class` is not document class for mongo $ref', $type);
                             }
 
                             if ( $ref['small'] ){
