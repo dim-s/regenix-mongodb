@@ -395,6 +395,9 @@ class Service extends AbstractService {
             case 'MongoId':
             case '\MongoId':
             case 'ObjectId': {
+                if ($value instanceof ActiveRecord)
+                    $value = $value->getId();
+
                 return $value instanceof \MongoId ? $value : new \MongoId( $value );
             }
 
@@ -560,6 +563,13 @@ class DocumentCursor extends ActiveRecordCursor {
     }
 
     public function sort(array $fields){
+        foreach($fields as &$value){
+            switch(strtolower($value)){
+                case 'asc' : $value = 1; break;
+                case 'desc': $value = -1; break;
+                case '': $value = 0; break;
+            }
+        }
         $this->cursor->sort($fields);
         return $this;
     }
